@@ -1,5 +1,6 @@
 from rest_framework import serializers
 from .models import Charger, ShiftRecord
+from django.utils import timezone
 
 
 class ChargerSerializer(serializers.ModelSerializer):
@@ -35,10 +36,14 @@ class ShiftRecordSerializer(serializers.ModelSerializer):
 
 
 class OpenShiftSerializer(serializers.ModelSerializer):
+    shift_start = serializers.DateTimeField(
+        default=timezone.now,
+        required=False
+    )
+
     class Meta:
         model = ShiftRecord
         fields = ['id', 'station', 'shift_start', 'kwh_start', 'notes']
-
 
 class CloseShiftSerializer(serializers.Serializer):
     kwh_end = serializers.DecimalField(max_digits=10, decimal_places=2)

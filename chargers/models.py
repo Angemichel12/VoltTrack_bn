@@ -1,4 +1,5 @@
 from django.db import models
+from django.utils import timezone
 
 
 class Charger(models.Model):
@@ -32,7 +33,7 @@ class ShiftRecord(models.Model):
         related_name='shift_records',
         limit_choices_to={'role': 'staff'}
     )
-    shift_start = models.DateTimeField()
+    shift_start = models.DateTimeField(default=timezone.now)
     shift_end = models.DateTimeField(null=True, blank=True)
     kwh_start = models.DecimalField(max_digits=10, decimal_places=2)
     kwh_end = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)

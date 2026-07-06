@@ -12,7 +12,7 @@ from .models import User
 class CustomUserCreationForm(UserCreationForm):
     class Meta(UserCreationForm.Meta):
         model = User
-        fields = ('email', 'name', 'role', 'station')
+        fields = ('phone_number', 'name', 'role')
 
     def save(self, commit=True):
         user = super().save(commit=False)
@@ -25,7 +25,7 @@ class CustomUserCreationForm(UserCreationForm):
 class CustomUserChangeForm(UserChangeForm):
     class Meta(UserChangeForm.Meta):
         model = User
-        fields = ('email', 'name', 'role', 'station', 'is_active')
+        fields = ('phone_number', 'name', 'role', 'is_active')
 
 
 # ─── Admin Class ──────────────────────────────────────────────────────────────
@@ -37,17 +37,17 @@ class UserAdmin(BaseUserAdmin):
     model       = User
 
     # List view
-    list_display    = ('email', 'name', 'role', 'station', 'is_active', 'created_at')
-    list_filter     = ('role', 'is_active', 'station')
-    search_fields   = ('email', 'name')
+    list_display    = ('phone_number', 'name', 'role', 'is_active', 'created_at')
+    list_filter     = ('role', 'is_active')
+    search_fields   = ('phone_number', 'name')
     ordering        = ('-created_at',)
     list_per_page   = 25
 
     # Detail view - editing existing user
     fieldsets = (
-        ('Credentials',   {'fields': ('email', 'password')}),
+        ('Credentials',   {'fields': ('phone_number', 'password')}),
         ('Personal Info', {'fields': ('name',)}),
-        ('Role & Station',{'fields': ('role', 'station')}),
+        ('Role',          {'fields': ('role',)}),
         ('Permissions',   {'fields': ('is_active', 'is_staff', 'is_superuser', 'groups', 'user_permissions')}),
         ('Timestamps',    {'fields': ('created_at',), 'classes': ('collapse',)}),
     )
@@ -57,11 +57,11 @@ class UserAdmin(BaseUserAdmin):
     add_fieldsets = (
         ('Account', {
             'classes': ('wide',),
-            'fields': ('email', 'name', 'password1', 'password2'),
+            'fields': ('phone_number', 'name', 'password1', 'password2'),
         }),
-        ('Role & Station', {
+        ('Role', {
             'classes': ('wide',),
-            'fields': ('role', 'station'),
+            'fields': ('role',),
         }),
         ('Status', {
             'classes': ('wide',),

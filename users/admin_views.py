@@ -1,6 +1,7 @@
 from rest_framework.views import APIView
 from rest_framework.viewsets import ModelViewSet
 from rest_framework.decorators import action
+from drf_spectacular.utils import extend_schema, extend_schema_view, OpenApiParameter
 
 from users.models import User
 from users.serializers import AdminCreateUserSerializer, UserSerializer
@@ -10,10 +11,22 @@ from .permissions import IsAdmin
 from .exceptions import success_response, error_response
 
 
+@extend_schema_view(
+    list=extend_schema(
+        tags=['Admin · Users'],
+        summary='List users',
+        parameters=[OpenApiParameter('role', str, description='Filter by role (admin/manager/staff)')],
+    ),
+    retrieve=extend_schema(tags=['Admin · Users'], summary='Retrieve a user'),
+    create=extend_schema(tags=['Admin · Users'], summary='Create a user', request=AdminCreateUserSerializer, responses={201: UserSerializer}),
+    update=extend_schema(tags=['Admin · Users'], summary='Update a user'),
+    partial_update=extend_schema(tags=['Admin · Users'], summary='Partially update a user'),
+    destroy=extend_schema(tags=['Admin · Users'], summary='Delete a user'),
+)
 class AdminUserViewSet(ModelViewSet):
     permission_classes = [IsAdmin]
     serializer_class = UserSerializer
-    queryset = User.objects.all().select_related('station')
+    queryset = User.objects.all()
 
     def get_serializer_class(self):
         if self.action == 'create':
@@ -44,19 +57,23 @@ class AdminUserViewSet(ModelViewSet):
         return success_response(message="User deleted successfully")
 
 
+@extend_schema_view(
+    list=extend_schema(tags=['Admin · Stations'], summary='List stations'),
+    retrieve=extend_schema(tags=['Admin · Stations'], summary='Retrieve a station'),
+    create=extend_schema(tags=['Admin · Stations'], summary='Create a station'),
+    update=extend_schema(tags=['Admin · Stations'], summary='Update a station'),
+    partial_update=extend_schema(tags=['Admin · Stations'], summary='Partially update a station'),
+    destroy=extend_schema(tags=['Admin · Stations'], summary='Delete a station'),
+)
 class AdminStationViewSet(ModelViewSet):
     permission_classes = [IsAdmin]
     serializer_class = StationSerializer
-    queryset = Station.objects.all().select_related('manager')
+    queryset = Station.objects.all()
 
     def create(self, request, *args, **kwargs):
         serializer = StationSerializer(data=request.data)
         if serializer.is_valid():
             station = serializer.save()
-            # Link manager's station
-            if station.manager:
-                station.manager.station = station
-                station.manager.save(update_fields=['station'])
             return success_response(data=StationSerializer(station).data, message="Station created", status_code=201)
         return error_response(errors=serializer.errors)
 
@@ -78,6 +95,7 @@ class AdminStationViewSet(ModelViewSet):
         qs = self.get_queryset()
         return success_response(data=StationSerializer(qs, many=True).data)
 
+    @extend_schema(tags=['Admin · Stations'], summary='System-wide charging reports')
     @action(detail=False, methods=['get'], url_path='reports')
     def system_reports(self, request):
         from charging_sessions.models import ChargingSession

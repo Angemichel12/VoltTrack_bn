@@ -1,27 +1,38 @@
 from rest_framework.views import APIView
+from drf_spectacular.utils import extend_schema, OpenApiParameter
 
 from .models import ChargingSession
 from .serializers import ChargingSessionSerializer, StartSessionSerializer, EndSessionSerializer
 from .services import SessionService
 from cars.models import Car
-from cars.serializers import CarSerializer
-from users.permissions import IsStaff
+from cars.serializers import CarSerializer, CarRegisterSerializer
+from users.permissions import IsStaff, IsAdminOrStaff
 from users.exceptions import success_response, error_response
 
 
 class RegisterCarView(APIView):
-    permission_classes = [IsStaff]
+    permission_classes = [IsAdminOrStaff]
 
+    @extend_schema(
+        tags=['Cars'],
+        summary='Register a car (or return the existing one for that plate)',
+        request=CarRegisterSerializer,
+        responses={200: CarRegisterSerializer, 201: CarRegisterSerializer},
+    )
     def post(self, request):
-        serializer = CarSerializer(data=request.data)
+        serializer = CarRegisterSerializer(data=request.data)
         if serializer.is_valid():
             plate = serializer.validated_data['plate_number'].upper().strip()
             car, created = Car.objects.get_or_create(
                 plate_number=plate,
-                defaults={'optional_info': serializer.validated_data.get('optional_info', '')}
+                defaults={
+                    'owner_name': serializer.validated_data.get('owner_name', ''),
+                    'phone_number': serializer.validated_data.get('phone_number', ''),
+                    'optional_info': serializer.validated_data.get('optional_info', ''),
+                }
             )
             return success_response(
-                data=CarSerializer(car).data,
+                data=CarRegisterSerializer(car).data,
                 message="Car registered" if created else "Car already exists",
                 status_code=201 if created else 200
             )
@@ -29,26 +40,38 @@ class RegisterCarView(APIView):
 
 
 class SearchCarView(APIView):
-    permission_classes = [IsStaff]
+    """Incremental plate search — matches on any characters typed so far, for a type-ahead pick list."""
+    permission_classes = [IsAdminOrStaff]
+    MAX_RESULTS = 20
 
+    @extend_schema(
+        tags=['Cars'],
+        summary='Search cars by partial plate number (type-ahead)',
+        parameters=[OpenApiParameter('plate', str, required=True, description='Characters typed so far — matches anywhere in the plate number')],
+        responses={200: CarRegisterSerializer(many=True)},
+    )
     def get(self, request):
         plate = request.query_params.get('plate')
         if not plate:
             return error_response(message="plate query parameter is required")
-        try:
-            car = Car.objects.get(plate_number=plate.upper().strip())
-            return success_response(data=CarSerializer(car).data)
-        except Car.DoesNotExist:
-            return error_response(message="Car not found", status_code=404)
+
+        serializer_class = CarSerializer if request.user.role == 'admin' else CarRegisterSerializer
+        cars = Car.objects.filter(
+            plate_number__icontains=plate.upper().strip()
+        ).order_by('plate_number')[:self.MAX_RESULTS]
+        return success_response(data=serializer_class(cars, many=True).data)
 
 
 class StartSessionView(APIView):
     permission_classes = [IsStaff]
 
+    @extend_schema(
+        tags=['Charging Sessions'],
+        summary='Start a charging session at your station',
+        request=StartSessionSerializer,
+        responses={201: ChargingSessionSerializer},
+    )
     def post(self, request):
-        if not request.user.station:
-            return error_response(message="You are not assigned to any station")
-
         serializer = StartSessionSerializer(data=request.data)
         if not serializer.is_valid():
             return error_response(errors=serializer.errors)
@@ -57,7 +80,9 @@ class StartSessionView(APIView):
             session = SessionService.start_session(
                 staff=request.user,
                 charger_id=serializer.validated_data['charger_id'],
-                plate_number=serializer.validated_data['plate_number']
+                port=serializer.validated_data['port'],
+                plate_number=serializer.validated_data['plate_number'],
+                starting_car_percentage=serializer.validated_data['starting_car_percentage'],
             )
             return success_response(
                 data=ChargingSessionSerializer(session).data,
@@ -71,6 +96,12 @@ class StartSessionView(APIView):
 class EndSessionView(APIView):
     permission_classes = [IsStaff]
 
+    @extend_schema(
+        tags=['Charging Sessions'],
+        summary='End a charging session',
+        request=EndSessionSerializer,
+        responses={200: ChargingSessionSerializer},
+    )
     def post(self, request):
         serializer = EndSessionSerializer(data=request.data)
         if not serializer.is_valid():
@@ -80,7 +111,8 @@ class EndSessionView(APIView):
             session = SessionService.end_session(
                 staff=request.user,
                 session_id=serializer.validated_data['session_id'],
-                watt_consumed=serializer.validated_data['watt_consumed']
+                watt_consumed=serializer.validated_data['watt_consumed'],
+                ending_car_percentage=serializer.validated_data['ending_car_percentage'],
             )
             return success_response(
                 data=ChargingSessionSerializer(session).data,
@@ -93,6 +125,11 @@ class EndSessionView(APIView):
 class MySessionsView(APIView):
     permission_classes = [IsStaff]
 
+    @extend_schema(
+        tags=['Charging Sessions'],
+        summary='List your own charging sessions',
+        responses={200: ChargingSessionSerializer(many=True)},
+    )
     def get(self, request):
         sessions = ChargingSession.objects.filter(
             staff=request.user

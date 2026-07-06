@@ -37,12 +37,15 @@ INSTALLED_APPS = [
       # Third party
     'rest_framework',
     'rest_framework_simplejwt',
+    'rest_framework_simplejwt.token_blacklist',
+    'drf_spectacular',
     'corsheaders',
     'users',
     'stations',
     'chargers',
     'charging_sessions',
     'cars',
+    'reports',
 ]
 
 MIDDLEWARE = [
@@ -80,14 +83,14 @@ WSGI_APPLICATION = 'VoltTrack.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/4.2/ref/settings/#databases
 
-# DATABASES = {
-#     'default': {
-#         'ENGINE': 'django.db.backends.sqlite3',
-#         'NAME': BASE_DIR / 'db.sqlite3',
-#     }
-# }
-DATABASE_URL = str(os.getenv('DATABASE_URL'))
-DATABASES = {'default': dj_database_url.config(default=DATABASE_URL, conn_max_age=600)}
+DATABASES = {
+    'default': {
+        'ENGINE': 'django.db.backends.sqlite3',
+        'NAME': BASE_DIR / 'db.sqlite3',
+    }
+}
+# DATABASE_URL = str(os.getenv('DATABASE_URL'))
+# DATABASES = {'default': dj_database_url.config(default=DATABASE_URL, conn_max_age=600)}
 
 
 # Password validation
@@ -118,7 +121,8 @@ REST_FRAMEWORK = {
     'DEFAULT_RENDERER_CLASSES': (
         'rest_framework.renderers.JSONRenderer',
     ),
-    'EXCEPTION_HANDLER': 'users.exceptions',
+    'EXCEPTION_HANDLER': 'users.exceptions.custom_exception_handler',
+    'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
 }
 
 SIMPLE_JWT = {
@@ -126,6 +130,15 @@ SIMPLE_JWT = {
     'REFRESH_TOKEN_LIFETIME': timedelta(days=7),
     'ROTATE_REFRESH_TOKENS': True,
     'AUTH_HEADER_TYPES': ('Bearer',),
+}
+
+SPECTACULAR_SETTINGS = {
+    'TITLE': 'VoltTrack API',
+    'DESCRIPTION': 'API for managing EV charging stations, chargers, staff shifts, and charging sessions.',
+    'VERSION': '1.0.0',
+    'SERVE_INCLUDE_SCHEMA': False,
+    'COMPONENT_SPLIT_REQUEST': True,
+    'SCHEMA_PATH_PREFIX': '/api/',
 }
 
 CORS_ALLOW_ALL_ORIGINS = DEBUG

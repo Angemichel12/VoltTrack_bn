@@ -3,6 +3,7 @@ from .views import (
     ChargerListCreateView,
     OpenShiftView,
     CloseShiftView,
+    AddCashpowerView,
     ShiftHistoryView,
 )
 
@@ -13,5 +14,6 @@ urlpatterns = [
     # ── Shifts ────────────────────────────────────────────
     path('shifts/open/', OpenShiftView.as_view(), name='shift-open'),
     path('shifts/<int:pk>/close/', CloseShiftView.as_view(), name='shift-close'),
+    path('shifts/<int:pk>/add-cashpower/', AddCashpowerView.as_view(), name='shift-add-cashpower'),
     path('shifts/history/', ShiftHistoryView.as_view(), name='shift-history'),
 ]

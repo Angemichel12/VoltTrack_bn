@@ -22,7 +22,7 @@ class Migration(migrations.Migration):
                 ('last_login', models.DateTimeField(blank=True, null=True, verbose_name='last login')),
                 ('is_superuser', models.BooleanField(default=False, help_text='Designates that this user has all permissions without explicitly assigning them.', verbose_name='superuser status')),
                 ('name', models.CharField(max_length=255)),
-                ('email', models.EmailField(db_index=True, max_length=254, unique=True)),
+                ('phone_number', models.CharField(db_index=True, max_length=20, unique=True)),
                 ('role', models.CharField(choices=[('admin', 'Admin'), ('manager', 'Manager'), ('staff', 'Staff')], default='staff', max_length=10)),
                 ('is_active', models.BooleanField(default=True)),
                 ('is_staff', models.BooleanField(default=False)),
@@ -33,7 +33,7 @@ class Migration(migrations.Migration):
             ],
             options={
                 'db_table': 'users',
-                'indexes': [models.Index(fields=['email'], name='users_email_4b85f2_idx')],
+                'indexes': [models.Index(fields=['phone_number'], name='users_phone__4b85f2_idx')],
             },
         ),
     ]

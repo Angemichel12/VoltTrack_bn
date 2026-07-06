@@ -1,15 +1,31 @@
+from decimal import Decimal
 from rest_framework import serializers
+from drf_spectacular.utils import extend_schema_field
 from .models import Charger, ShiftRecord
 from django.utils import timezone
 
 
+class ChargerPortSerializer(serializers.Serializer):
+    port = serializers.ChoiceField(choices=Charger.PORT_CHOICES)
+    available = serializers.BooleanField()
+
+
 class ChargerSerializer(serializers.ModelSerializer):
     station_name = serializers.CharField(source='station.name', read_only=True)
+    ports = serializers.SerializerMethodField()
 
     class Meta:
         model = Charger
-        fields = ['id', 'name', 'station', 'station_name', 'created_at']
+        fields = ['id', 'name', 'station', 'station_name', 'ports', 'created_at']
         read_only_fields = ['created_at']
+
+    @extend_schema_field(ChargerPortSerializer(many=True))
+    def get_ports(self, obj):
+        occupied = set(obj.sessions.filter(ended_at__isnull=True).values_list('port', flat=True))
+        return [
+            {'port': port, 'available': port not in occupied}
+            for port in Charger.PORTS
+        ]
 
 
 class ShiftRecordSerializer(serializers.ModelSerializer):
@@ -22,17 +38,15 @@ class ShiftRecordSerializer(serializers.ModelSerializer):
             'id', 'station', 'station_name',
             'staff', 'staff_name',
             'shift_start', 'shift_end',
-            'kwh_start', 'kwh_end', 'kwh_consumed',
+            'start_kwatts_in_cashpower', 'addition_kwatt_in_cashpower', 'total_kwatt',
+            'total_earned_money_on_shift', 'total_kwatt_used_on_shift', 'total_car_charged',
+            'money_on_momo', 'end_kwatts_in_cashpower',
             'notes', 'created_at', 'updated_at',
         ]
-        read_only_fields = ['kwh_consumed', 'staff', 'created_at', 'updated_at']
-
-    def validate(self, attrs):
-        kwh_start = attrs.get('kwh_start', getattr(self.instance, 'kwh_start', None))
-        kwh_end = attrs.get('kwh_end')
-        if kwh_end is not None and kwh_end <= kwh_start:
-            raise serializers.ValidationError("kwh_end must be greater than kwh_start.")
-        return attrs
+        read_only_fields = [
+            'staff', 'total_kwatt', 'total_earned_money_on_shift', 'total_kwatt_used_on_shift',
+            'total_car_charged', 'money_on_momo', 'end_kwatts_in_cashpower', 'created_at', 'updated_at',
+        ]
 
 
 class OpenShiftSerializer(serializers.ModelSerializer):
@@ -43,8 +57,14 @@ class OpenShiftSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = ShiftRecord
-        fields = ['id', 'station', 'shift_start', 'kwh_start', 'notes']
+        fields = ['id', 'station', 'shift_start', 'start_kwatts_in_cashpower', 'notes']
+
+
+class AddCashpowerSerializer(serializers.Serializer):
+    amount = serializers.DecimalField(max_digits=10, decimal_places=2, min_value=Decimal('0.01'))
+
 
 class CloseShiftSerializer(serializers.Serializer):
-    kwh_end = serializers.DecimalField(max_digits=10, decimal_places=2)
+    money_on_momo = serializers.DecimalField(max_digits=12, decimal_places=2)
+    end_kwatts_in_cashpower = serializers.DecimalField(max_digits=10, decimal_places=2)
     notes = serializers.CharField(required=False, allow_blank=True)

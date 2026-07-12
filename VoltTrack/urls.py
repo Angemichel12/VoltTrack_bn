@@ -34,4 +34,10 @@ urlpatterns = [
 
     # ── Reports ────────────────────────────────────────────
     path('api/reports/', include('reports.urls')),
+
+    # ── Expenses (admin-only, per-station) ────────────────
+    path('api/expenses/', include('expenses.urls')),
+
+    # ── Dashboard (aggregated stats for graphs) ───────────
+    path('api/dashboard/', include('dashboard.urls')),
 ]

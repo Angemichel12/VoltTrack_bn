@@ -28,3 +28,11 @@ SHIFT_REPORT_COLUMNS = [
     ('End Time', 'shift_end'),
     ('Total Cars Charged', 'total_car_charged'),
 ]
+
+EXPENSE_REPORT_COLUMNS = [
+    ('Station', 'station_name'),
+    ('Description', 'description'),
+    ('Amount VAT Exclusive', 'amount_vat_exclusive'),
+    ('Input VAT', 'input_vat'),
+    ('Date', 'date'),
+]

@@ -71,6 +71,22 @@ Standard DRF router CRUD (`list/retrieve/create/update/partial_update/destroy`) 
 
 Cars moved out of this router — see `/api/cars/` below, shared with staff.
 
+### Expenses — `/api/expenses/` (IsAdmin only)
+
+Standard DRF router CRUD for per-station expense records.
+
+| Method | Path | Body | Notes |
+|---|---|---|---|
+| GET | `` | — | List expenses. Query params: `station`, `date_from`, `date_to` (`YYYY-MM-DD`, inclusive). |
+| POST | `` | `station, description, amount_vat_exclusive, input_vat` | `date` is set automatically (auto-now), never sent by the client. |
+| GET | `<pk>/` | — | Retrieve one expense. |
+| PATCH | `<pk>/` | any of the create fields | Partial update. |
+| DELETE | `<pk>/` | — | Delete an expense. |
+
+`Expense` fields returned: `id, station, station_name, description, amount_vat_exclusive, input_vat, date`.
+
+Also exposed as a filterable report under `/api/reports/expenses/` (see Reports below) with the same `station`/`date_from`/`date_to` filters, plus `.xlsx`/`.pdf` twins.
+
 ### Stations — `/api/stations/`
 
 | Method | Path | Role | Notes |
@@ -133,17 +149,35 @@ Two report types, each with a JSON endpoint plus Excel/PDF download twins that a
 | GET | `shifts/` | JSON: shift report. |
 | GET | `shifts/excel/` | Same data as `.xlsx`. |
 | GET | `shifts/pdf/` | Same data as `.pdf`. |
+| GET | `expenses/` | JSON: station expenses report. **Admin only** (unlike the two reports above). |
+| GET | `expenses/excel/` | Same data as `.xlsx`. |
+| GET | `expenses/pdf/` | Same data as `.pdf`. |
 
 **Filters (query params, all optional)**:
-- `staff` — admin only; staff requests ignore/can't override this, always scoped to themselves. Invalid (non-integer) values return a 400 with a clear message, not a 500.
+- `staff` — admin only; staff requests ignore/can't override this, always scoped to themselves. Invalid (non-integer) values return a 400 with a clear message, not a 500. Not applicable to the expenses report (no staff field).
 - `station` — station id.
 - `charger` — session report only.
 - `shift` — session report only, filter to one shift's sessions.
-- `date_from` / `date_to` — `YYYY-MM-DD`, inclusive, filtered on `started_at` (sessions) / `shift_start` (shifts).
+- `date_from` / `date_to` — `YYYY-MM-DD`, inclusive, filtered on `started_at` (sessions) / `shift_start` (shifts) / `date` (expenses).
 
 **Session report row**: `shift_id, staff_name, station_name, charger_name, port, car_plate, starting_car_percentage, ending_car_percentage, watt_consumed, duration, total_price, started_at, ended_at`. `total_price` ("paid") is the same auto-calculated value from the session itself — never entered directly.
 
 **Shift report row**: `staff_name, station_name, shift_start, start_kwatts_in_cashpower, addition_kwatt_in_cashpower, total_kwatt, total_earned_money_on_shift, total_kwatt_used_on_shift, money_on_momo, end_kwatts_in_cashpower, shift_end, total_car_charged`.
+
+**Expenses report row**: `id, station_name, description, amount_vat_exclusive, input_vat, date`.
+
+### Dashboard — `/api/dashboard/` (`IsAdminOrStaff`; staff always scoped to their own sessions/shifts, admin sees everyone)
+
+Aggregated, chart-ready JSON for a stats dashboard — no HTML/rendering, just numbers for a frontend to plot. Same `station` / `date_from` / `date_to` filters as the reports endpoints (staff can't override the implicit scoping to their own data).
+
+| Method | Path | Notes |
+|---|---|---|
+| GET | `summary/` | KPI tiles: `total_revenue, total_kwatt_used, total_sessions, total_shifts, stations`. Admin responses add `total_expenses, net_revenue` (staff can't see expenses at all, per the admin-only `Expense` resource). |
+| GET | `revenue-trend/` | Line-chart data: `[{date, revenue}, ...]` grouped by day. Admin entries also carry `expenses` for days with recorded expenses. |
+| GET | `station-usage/` | Bar-chart data: `[{station_id, station_name, sessions, kwatt_used, revenue}, ...]` — one row per station the user has sessions at. |
+| GET | `shift-activity/` | `[{date, shifts, earnings, kwatt_used, cars_charged}, ...]` grouped by day, from the same derived `ShiftRecord` totals used in the shift report. |
+
+`total_expenses` in `summary/` is `amount_vat_exclusive + input_vat` summed across matching expenses (i.e. total cash outlay including VAT), not just the VAT-exclusive amount.
 
 ## Models quick-reference
 
@@ -153,3 +187,4 @@ Two report types, each with a JSON endpoint plus Excel/PDF download twins that a
 - **ShiftRecord**: see fields above — one open shift per staff member at a time, station chosen at open-time. `money_on_momo` and `end_kwatts_in_cashpower` are staff-entered at close; everything else derived is computed.
 - **Car**: `plate_number (unique), owner_name, phone_number, unique_price (admin-only), optional_info`.
 - **ChargingSession**: linked to `station, charger, port, staff, shift, car`; `total_price` and `duration` are computed, not sent by the client. DB-level unique constraint prevents two active sessions on the same charger+port.
+- **Expense**: `station, description, amount_vat_exclusive, input_vat`, all entered by an admin; `date` is auto-set on creation and not sent by the client. Admin-only resource.

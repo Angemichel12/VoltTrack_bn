@@ -1,6 +1,7 @@
 from django.utils.dateparse import parse_date
 from charging_sessions.models import ChargingSession
 from chargers.models import ShiftRecord
+from expenses.models import Expense
 
 
 def _parse_int(params, key):
@@ -81,3 +82,22 @@ def filter_shifts(user, params):
         qs = qs.filter(shift_start__date__lte=date_to)
 
     return qs.order_by('-shift_start')
+
+
+def filter_expenses(params):
+    """Expenses report queryset. Admin-only resource — no per-staff scoping."""
+    qs = Expense.objects.select_related('station')
+
+    station_id = _parse_int(params, 'station')
+    if station_id is not None:
+        qs = qs.filter(station_id=station_id)
+
+    date_from = _parse_date(params, 'date_from')
+    if date_from is not None:
+        qs = qs.filter(date__date__gte=date_from)
+
+    date_to = _parse_date(params, 'date_to')
+    if date_to is not None:
+        qs = qs.filter(date__date__lte=date_to)
+
+    return qs.order_by('-date')

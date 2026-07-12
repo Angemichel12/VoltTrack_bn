@@ -1,6 +1,7 @@
 from rest_framework import serializers
 from charging_sessions.models import ChargingSession
 from chargers.models import ShiftRecord
+from expenses.models import Expense
 
 
 class SessionReportSerializer(serializers.ModelSerializer):
@@ -32,4 +33,15 @@ class ShiftReportSerializer(serializers.ModelSerializer):
             'total_earned_money_on_shift', 'total_kwatt_used_on_shift',
             'money_on_momo', 'end_kwatts_in_cashpower',
             'shift_end', 'total_car_charged',
+        ]
+
+
+class ExpenseReportSerializer(serializers.ModelSerializer):
+    station_name = serializers.CharField(source='station.name', read_only=True)
+
+    class Meta:
+        model = Expense
+        fields = [
+            'id', 'station_name', 'description',
+            'amount_vat_exclusive', 'input_vat', 'date',
         ]

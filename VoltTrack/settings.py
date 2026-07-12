@@ -46,6 +46,8 @@ INSTALLED_APPS = [
     'charging_sessions',
     'cars',
     'reports',
+    'expenses',
+    'dashboard',
 ]
 
 MIDDLEWARE = [

@@ -17,7 +17,7 @@ class SessionReportSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'shift_id', 'staff_name', 'station_name', 'charger_name', 'port',
             'car_plate', 'starting_car_percentage', 'ending_car_percentage',
-            'watt_consumed', 'duration', 'total_price', 'started_at', 'ended_at',
+            'watt_consumed', 'is_estimated', 'duration', 'total_price', 'started_at', 'ended_at',
         ]
 
 

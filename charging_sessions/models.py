@@ -39,6 +39,7 @@ class ChargingSession(models.Model):
     starting_car_percentage = models.PositiveSmallIntegerField(null=True, blank=True)
     ending_car_percentage = models.PositiveSmallIntegerField(null=True, blank=True)
     watt_consumed = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
+    is_estimated = models.BooleanField(default=False)
     total_price = models.DecimalField(max_digits=12, decimal_places=4, null=True, blank=True)
     started_at = models.DateTimeField(auto_now_add=True)
     ended_at = models.DateTimeField(null=True, blank=True)

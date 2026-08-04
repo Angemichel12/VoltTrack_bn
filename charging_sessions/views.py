@@ -99,6 +99,15 @@ class EndSessionView(APIView):
     @extend_schema(
         tags=['Charging Sessions'],
         summary='End a charging session',
+        description=(
+            'Normally staff supply the metered kWh in `watt_consumed`. When the '
+            'grid power went off mid-charge and the meter can\'t be read, send '
+            '`power_outage=true` and omit `watt_consumed`: the kWh used is then '
+            'estimated from the car\'s past charging history (average kWh per '
+            'battery %, applied to this session\'s start/end %), and the result '
+            'is flagged with `is_estimated=true`. If the car has no history yet, '
+            'the request is rejected and staff must enter `watt_consumed` manually.'
+        ),
         request=EndSessionSerializer,
         responses={200: ChargingSessionSerializer},
     )
@@ -111,8 +120,9 @@ class EndSessionView(APIView):
             session = SessionService.end_session(
                 staff=request.user,
                 session_id=serializer.validated_data['session_id'],
-                watt_consumed=serializer.validated_data['watt_consumed'],
                 ending_car_percentage=serializer.validated_data['ending_car_percentage'],
+                watt_consumed=serializer.validated_data.get('watt_consumed'),
+                power_outage=serializer.validated_data.get('power_outage', False),
             )
             return success_response(
                 data=ChargingSessionSerializer(session).data,

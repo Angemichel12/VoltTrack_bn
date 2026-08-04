@@ -1,4 +1,7 @@
+from decimal import Decimal, ROUND_HALF_UP
+
 from django.utils import timezone
+from django.db.models import F
 from charging_sessions.models import ChargingSession
 from chargers.models import Charger, ShiftRecord
 from cars.models import Car
@@ -41,7 +44,44 @@ class SessionService:
         )
 
     @staticmethod
-    def end_session(staff, session_id, watt_consumed, ending_car_percentage):
+    def estimate_watt_consumed(car, starting_pct, ending_pct):
+        """Estimate kWh used from the car's own charging history.
+
+        Each past *real* (non-estimated) completed session gives a per-percent
+        rate = watt_consumed / (ending% - starting%). We average those rates and
+        multiply by this session's (ending% - starting%). Returns a Decimal, or
+        None if the car has no usable history to estimate from.
+        """
+        if starting_pct is None or ending_pct is None:
+            raise ValueError("Both starting and ending percentages are required to estimate usage.")
+
+        delta = ending_pct - starting_pct
+        if delta <= 0:
+            raise ValueError("Ending percentage must be greater than starting percentage.")
+
+        basis = ChargingSession.objects.filter(
+            car=car,
+            ended_at__isnull=False,
+            is_estimated=False,
+            watt_consumed__isnull=False,
+            starting_car_percentage__isnull=False,
+            ending_car_percentage__isnull=False,
+            ending_car_percentage__gt=F('starting_car_percentage'),
+        )
+
+        rates = [
+            s.watt_consumed / Decimal(s.ending_car_percentage - s.starting_car_percentage)
+            for s in basis
+        ]
+        if not rates:
+            return None
+
+        avg_rate = sum(rates) / Decimal(len(rates))
+        estimated = avg_rate * Decimal(delta)
+        return estimated.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+
+    @staticmethod
+    def end_session(staff, session_id, ending_car_percentage, watt_consumed=None, power_outage=False):
         try:
             session = ChargingSession.objects.select_related('station', 'car').get(
                 id=session_id,
@@ -51,7 +91,23 @@ class SessionService:
         except ChargingSession.DoesNotExist:
             raise ValueError("Active session not found or does not belong to you.")
 
-        session.watt_consumed = watt_consumed
+        if power_outage and watt_consumed is None:
+            estimated = SessionService.estimate_watt_consumed(
+                session.car, session.starting_car_percentage, ending_car_percentage
+            )
+            if estimated is None:
+                raise ValueError(
+                    "No charging history for this car yet, so kWh can't be estimated. "
+                    "Please enter the kWh used manually."
+                )
+            session.watt_consumed = estimated
+            session.is_estimated = True
+        else:
+            if watt_consumed is None:
+                raise ValueError("watt_consumed is required to end a session.")
+            session.watt_consumed = watt_consumed
+            session.is_estimated = False
+
         session.ending_car_percentage = ending_car_percentage
         session.ended_at = timezone.now()
         session.save()

@@ -17,10 +17,10 @@ class ChargingSessionSerializer(serializers.ModelSerializer):
             'id', 'station', 'station_name', 'charger', 'charger_name', 'port',
             'staff', 'shift', 'car', 'car_plate',
             'starting_car_percentage', 'ending_car_percentage',
-            'watt_consumed', 'total_price', 'duration',
+            'watt_consumed', 'is_estimated', 'total_price', 'duration',
             'started_at', 'ended_at'
         ]
-        read_only_fields = ['total_price', 'started_at', 'ended_at', 'station', 'staff', 'shift']
+        read_only_fields = ['total_price', 'is_estimated', 'started_at', 'ended_at', 'station', 'staff', 'shift']
 
 
 class StartSessionSerializer(serializers.Serializer):
@@ -32,5 +32,13 @@ class StartSessionSerializer(serializers.Serializer):
 
 class EndSessionSerializer(serializers.Serializer):
     session_id = serializers.IntegerField()
-    watt_consumed = serializers.DecimalField(max_digits=12, decimal_places=2)
+    watt_consumed = serializers.DecimalField(max_digits=12, decimal_places=2, required=False, allow_null=True)
     ending_car_percentage = serializers.IntegerField(min_value=0, max_value=100)
+    power_outage = serializers.BooleanField(required=False, default=False)
+
+    def validate(self, attrs):
+        if not attrs.get('power_outage') and attrs.get('watt_consumed') is None:
+            raise serializers.ValidationError(
+                {'watt_consumed': 'This field is required unless power_outage is true.'}
+            )
+        return attrs

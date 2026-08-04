@@ -8,6 +8,7 @@ SESSION_REPORT_COLUMNS = [
     ('Start %', 'starting_car_percentage'),
     ('End %', 'ending_car_percentage'),
     ('kWh Used', 'watt_consumed'),
+    ('Estimated', 'is_estimated'),
     ('Duration', 'duration'),
     ('Paid', 'total_price'),
     ('Started At', 'started_at'),

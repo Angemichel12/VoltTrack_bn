@@ -44,6 +44,7 @@ Reference for integrating a frontend (or another service) with the VoltTrack API
 4. POST /api/sessions/register-car/                → register car if new (or GET /api/sessions/search-car/ if returning)
 5. POST /api/sessions/start/                       → { charger_id, port, plate_number, starting_car_percentage }
 6. POST /api/sessions/end/                         → { session_id, watt_consumed, ending_car_percentage }
+   ... or on a power cut: { session_id, ending_car_percentage, power_outage: true } → kWh auto-estimated from the car's history ...
    ... repeat 4-6 for more cars during the shift ...
 7. PATCH /api/chargers/shifts/{id}/close/           → { money_on_momo, notes? } → totals computed
 8. POST /api/auth/logout/                          → { refresh } → now allowed
@@ -132,10 +133,47 @@ Full CRUD, but the response shape and what you're allowed to set depends on role
 | POST | `register-car/` | admin or staff | `plate_number, owner_name?, phone_number?, optional_info?` | Get-or-create by plate — convenience wrapper around `/api/cars/` for the shift flow. No `unique_price` here either way. |
 | GET | `search-car/?plate=...` | admin or staff | — | **Type-ahead**: `plate` matches anywhere in the plate number (case-insensitive), returns up to 20 matches ordered by plate. Meant to be called on every keystroke so the user can pick the right plate before starting a session; returns `[]` (not 404) when nothing matches yet. |
 | POST | `start/` | staff | `charger_id, port ("left"/"right"), plate_number, starting_car_percentage` | Requires an open shift; charger must belong to that shift's station; the chosen `port` must not already have an active session on that charger. |
-| POST | `end/` | staff | `session_id, watt_consumed, ending_car_percentage` | Computes `total_price` (car `unique_price` else station `price_per_watt`) and `duration`. |
+| POST | `end/` | staff | `session_id, watt_consumed, ending_car_percentage` (or `session_id, ending_car_percentage, power_outage=true`) | Computes `total_price` (car `unique_price` else station `price_per_watt`) and `duration`. **Power-outage estimate**: when the grid cut mid-charge and the meter can't be read, send `power_outage=true` and omit `watt_consumed` — the kWh used is estimated from the car's past sessions (average kWh per battery %, applied to this session's start→end %) and flagged `is_estimated=true`. If the car has no prior history, the request is rejected and staff must enter `watt_consumed` manually. |
 | GET | `my-sessions/` | staff | — | Staff's own sessions, all stations, newest first. |
 
-`ChargingSession` fields returned: `station, station_name, charger, charger_name, port, staff, shift, car, car_plate, starting_car_percentage, ending_car_percentage, watt_consumed, total_price, duration, started_at, ended_at`.
+`ChargingSession` fields returned: `station, station_name, charger, charger_name, port, staff, shift, car, car_plate, starting_car_percentage, ending_car_percentage, watt_consumed, is_estimated, total_price, duration, started_at, ended_at`. `is_estimated` is `true` when `watt_consumed` was auto-estimated after a power outage rather than metered.
+
+#### Ending a session — normal vs. power-outage
+
+`POST /api/sessions/end/` has two modes, chosen by the `power_outage` flag:
+
+**Normal end** — staff read the kWh off the meter and send it:
+
+```json
+// request
+{ "session_id": 42, "watt_consumed": 50.0, "ending_car_percentage": 100 }
+```
+
+`watt_consumed` is **required** in this mode (`power_outage` absent or `false`). Omitting it returns
+`{"success": false, "errors": {"watt_consumed": ["This field is required unless power_outage is true."]}}`.
+
+**Power-outage end** — the grid cut mid-charge, the charger switched off, and the meter can't be read.
+Send `power_outage: true` and **omit** `watt_consumed`; the server estimates it from the car's history:
+
+```json
+// request
+{ "session_id": 42, "ending_car_percentage": 50, "power_outage": true }
+
+// success response (data)
+{ "id": 42, "watt_consumed": "18.75", "is_estimated": true, "total_price": "1875.0000", ... }
+```
+
+How the estimate is computed (server-side, not the client's job):
+- For each of the car's **past completed real** sessions (`is_estimated=false`, both percentages recorded, end% > start%), a per-percent rate = `watt_consumed / (ending% − starting%)` (kWh per 1% of battery).
+- The rates are **averaged** across all such sessions, then multiplied by this session's `(ending_car_percentage − starting_car_percentage)` and rounded to 2 decimals.
+- Example: a past charge used 50 kWh over 20%→100% → rate 0.625 kWh/%. This outage the car went 20%→50% → `0.625 × 30 = 18.75` kWh. `total_price` then applies pricing rule #5 as usual.
+
+Integration notes for the frontend:
+- Offer a **"Power went off / couldn't read meter"** toggle on the end-session form. When on, hide/disable the kWh input and send `power_outage: true` without `watt_consumed`; still collect `ending_car_percentage`.
+- `ending_car_percentage` must be **greater than** `starting_car_percentage`, else the request is rejected with `"Ending percentage must be greater than starting percentage."`
+- If the car has **no prior real session** to estimate from, the request is rejected with
+  `"No charging history for this car yet, so kWh can't be estimated. Please enter the kWh used manually."` — fall back to the normal form and ask the staff to type `watt_consumed`.
+- On success, surface `is_estimated: true` in the UI (e.g. an "estimated" badge on the amount) so staff/admins know the kWh wasn't metered. The same flag appears in `my-sessions`, session reports, and the "Estimated" column of the Excel/PDF session exports.
 
 ### Reports — `/api/reports/` (`IsAdminOrStaff`; staff always scoped to their own data, admin sees everyone and can filter by staff)
 
@@ -160,7 +198,7 @@ Two report types, each with a JSON endpoint plus Excel/PDF download twins that a
 - `shift` — session report only, filter to one shift's sessions.
 - `date_from` / `date_to` — `YYYY-MM-DD`, inclusive, filtered on `started_at` (sessions) / `shift_start` (shifts) / `date` (expenses).
 
-**Session report row**: `shift_id, staff_name, station_name, charger_name, port, car_plate, starting_car_percentage, ending_car_percentage, watt_consumed, duration, total_price, started_at, ended_at`. `total_price` ("paid") is the same auto-calculated value from the session itself — never entered directly.
+**Session report row**: `shift_id, staff_name, station_name, charger_name, port, car_plate, starting_car_percentage, ending_car_percentage, watt_consumed, is_estimated, duration, total_price, started_at, ended_at`. `total_price` ("paid") is the same auto-calculated value from the session itself — never entered directly.
 
 **Shift report row**: `staff_name, station_name, shift_start, start_kwatts_in_cashpower, addition_kwatt_in_cashpower, total_kwatt, total_earned_money_on_shift, total_kwatt_used_on_shift, money_on_momo, end_kwatts_in_cashpower, shift_end, total_car_charged`.
 

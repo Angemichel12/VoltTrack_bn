@@ -45,12 +45,12 @@ class SessionService:
 
     @staticmethod
     def estimate_watt_consumed(car, starting_pct, ending_pct):
-        """Estimate kWh used from the car's own charging history.
+        """Estimate kWh used from the car's most recent completed charge.
 
-        Each past *real* (non-estimated) completed session gives a per-percent
-        rate = watt_consumed / (ending% - starting%). We average those rates and
-        multiply by this session's (ending% - starting%). Returns a Decimal, or
-        None if the car has no usable history to estimate from.
+        Takes the car's last *real* (non-estimated) completed session, derives its
+        per-percent rate = watt_consumed / (ending% - starting%), and multiplies by
+        this session's (ending% - starting%). Returns a Decimal, or None if the car
+        has no usable history to estimate from.
         """
         if starting_pct is None or ending_pct is None:
             raise ValueError("Both starting and ending percentages are required to estimate usage.")
@@ -59,25 +59,24 @@ class SessionService:
         if delta <= 0:
             raise ValueError("Ending percentage must be greater than starting percentage.")
 
-        basis = ChargingSession.objects.filter(
-            car=car,
-            ended_at__isnull=False,
-            is_estimated=False,
-            watt_consumed__isnull=False,
-            starting_car_percentage__isnull=False,
-            ending_car_percentage__isnull=False,
-            ending_car_percentage__gt=F('starting_car_percentage'),
+        last = (
+            ChargingSession.objects.filter(
+                car=car,
+                ended_at__isnull=False,
+                is_estimated=False,
+                watt_consumed__isnull=False,
+                starting_car_percentage__isnull=False,
+                ending_car_percentage__isnull=False,
+                ending_car_percentage__gt=F('starting_car_percentage'),
+            )
+            .order_by('-ended_at')
+            .first()
         )
-
-        rates = [
-            s.watt_consumed / Decimal(s.ending_car_percentage - s.starting_car_percentage)
-            for s in basis
-        ]
-        if not rates:
+        if last is None:
             return None
 
-        avg_rate = sum(rates) / Decimal(len(rates))
-        estimated = avg_rate * Decimal(delta)
+        rate = last.watt_consumed / Decimal(last.ending_car_percentage - last.starting_car_percentage)
+        estimated = rate * Decimal(delta)
         return estimated.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
 
     @staticmethod

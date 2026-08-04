@@ -41,6 +41,10 @@ class ChargingSession(models.Model):
     watt_consumed = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
     is_estimated = models.BooleanField(default=False)
     total_price = models.DecimalField(max_digits=12, decimal_places=4, null=True, blank=True)
+    # Payment tracking. Prepaid cars are settled automatically at charge time;
+    # postpaid cars stay unpaid (a debt) until an admin records a payment.
+    is_paid = models.BooleanField(default=False)
+    amount_paid = models.DecimalField(max_digits=12, decimal_places=4, default=0)
     started_at = models.DateTimeField(auto_now_add=True)
     ended_at = models.DateTimeField(null=True, blank=True)
 
@@ -59,6 +63,12 @@ class ChargingSession(models.Model):
             price_per_watt = self.car.unique_price or self.station.price_per_watt
             if price_per_watt:
                 self.total_price = self.watt_consumed * price_per_watt
+            # Prepaid cars pay per charge, so settle the session automatically as
+            # soon as its price is known. Postpaid cars stay unpaid (a debt) until
+            # an admin records a payment via CarPaymentService.
+            if not self.car.is_postpaid and not self.is_paid:
+                self.is_paid = True
+                self.amount_paid = self.total_price
         super().save(*args, **kwargs)
 
     @property

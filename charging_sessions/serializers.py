@@ -17,10 +17,10 @@ class ChargingSessionSerializer(serializers.ModelSerializer):
             'id', 'station', 'station_name', 'charger', 'charger_name', 'port',
             'staff', 'shift', 'car', 'car_plate',
             'starting_car_percentage', 'ending_car_percentage',
-            'watt_consumed', 'is_estimated', 'total_price', 'duration',
+            'watt_consumed', 'is_estimated', 'total_price', 'is_paid', 'amount_paid', 'duration',
             'started_at', 'ended_at'
         ]
-        read_only_fields = ['total_price', 'is_estimated', 'started_at', 'ended_at', 'station', 'staff', 'shift']
+        read_only_fields = ['total_price', 'is_estimated', 'is_paid', 'amount_paid', 'started_at', 'ended_at', 'station', 'staff', 'shift']
 
 
 class StartSessionSerializer(serializers.Serializer):

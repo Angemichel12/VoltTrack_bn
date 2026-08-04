@@ -3,9 +3,12 @@ from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiTypes
 
 from users.permissions import IsAdminOrStaff, IsAdmin
 from users.exceptions import success_response, error_response
-from .filters import filter_sessions, filter_shifts, filter_expenses
+from .filters import filter_sessions, filter_shifts, filter_expenses, car_charge_summary
 from .serializers import SessionReportSerializer, ShiftReportSerializer, ExpenseReportSerializer
-from .columns import SESSION_REPORT_COLUMNS, SHIFT_REPORT_COLUMNS, EXPENSE_REPORT_COLUMNS
+from .columns import (
+    SESSION_REPORT_COLUMNS, SHIFT_REPORT_COLUMNS, EXPENSE_REPORT_COLUMNS,
+    CAR_SUMMARY_REPORT_COLUMNS,
+)
 from .exporters import build_excel_response, build_pdf_response
 
 
@@ -25,6 +28,13 @@ EXPENSE_FILTER_PARAMS = [
     OpenApiParameter('station', int, description='Filter by station id'),
     OpenApiParameter('date_from', str, description='YYYY-MM-DD, inclusive'),
     OpenApiParameter('date_to', str, description='YYYY-MM-DD, inclusive'),
+]
+
+CAR_SUMMARY_FILTER_PARAMS = [
+    OpenApiParameter('station', int, description='Filter by station id'),
+    OpenApiParameter('date_from', str, description='YYYY-MM-DD, inclusive (on session start / payment date)'),
+    OpenApiParameter('date_to', str, description='YYYY-MM-DD, inclusive'),
+    OpenApiParameter('postpaid', bool, description='true = pay-later cars only, false = prepaid only'),
 ]
 
 
@@ -155,3 +165,45 @@ class ExpenseReportPdfView(APIView):
             return error_response(message=str(e))
         rows = ExpenseReportSerializer(qs, many=True).data
         return build_pdf_response('Expenses Report', EXPENSE_REPORT_COLUMNS, rows, 'expenses_report')
+
+
+class CarSummaryReportView(APIView):
+    permission_classes = [IsAdmin]
+
+    @extend_schema(
+        tags=['Reports'],
+        summary='Per-car charging & payment summary (filterable)',
+        description='Times charged, total amount, amount/times paid and outstanding balance per car.',
+        parameters=CAR_SUMMARY_FILTER_PARAMS,
+        responses={200: OpenApiTypes.OBJECT},
+    )
+    def get(self, request):
+        try:
+            rows = car_charge_summary(request.query_params)
+        except ValueError as e:
+            return error_response(message=str(e))
+        return success_response(data=rows)
+
+
+class CarSummaryReportExcelView(APIView):
+    permission_classes = [IsAdmin]
+
+    @extend_schema(tags=['Reports'], summary='Download per-car summary report as Excel', parameters=CAR_SUMMARY_FILTER_PARAMS, responses={200: OpenApiTypes.BINARY})
+    def get(self, request):
+        try:
+            rows = car_charge_summary(request.query_params)
+        except ValueError as e:
+            return error_response(message=str(e))
+        return build_excel_response('Car Summary', CAR_SUMMARY_REPORT_COLUMNS, rows, 'car_summary_report')
+
+
+class CarSummaryReportPdfView(APIView):
+    permission_classes = [IsAdmin]
+
+    @extend_schema(tags=['Reports'], summary='Download per-car summary report as PDF', parameters=CAR_SUMMARY_FILTER_PARAMS, responses={200: OpenApiTypes.BINARY})
+    def get(self, request):
+        try:
+            rows = car_charge_summary(request.query_params)
+        except ValueError as e:
+            return error_response(message=str(e))
+        return build_pdf_response('Car Charging Summary Report', CAR_SUMMARY_REPORT_COLUMNS, rows, 'car_summary_report')

@@ -37,3 +37,14 @@ EXPENSE_REPORT_COLUMNS = [
     ('Input VAT', 'input_vat'),
     ('Date', 'date'),
 ]
+
+CAR_SUMMARY_REPORT_COLUMNS = [
+    ('Car Plate', 'plate_number'),
+    ('Owner', 'owner_name'),
+    ('Pay Later', 'is_postpaid'),
+    ('Times Charged', 'times_charged'),
+    ('Total Amount', 'total_amount'),
+    ('Amount Paid', 'amount_paid'),
+    ('Times Paid', 'times_paid'),
+    ('Outstanding', 'outstanding'),
+]

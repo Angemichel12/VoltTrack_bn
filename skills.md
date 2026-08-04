@@ -32,6 +32,7 @@ Reference for integrating a frontend (or another service) with the VoltTrack API
 3. **No charging session without an open shift.** `POST /api/sessions/start/` fails with `"You must open a shift before starting a session."` if the staff has none open.
 4. **No logout with an open shift.** `POST /api/auth/logout/` returns `"End your shift before logging out."` (400) until the staff closes their shift.
 5. **Pricing**: a session's `total_price = watt_consumed × price_per_watt`, where `price_per_watt` is the car's `unique_price` if the admin set one, otherwise the station's `price_per_watt`.
+5a. **Postpaid ("pay-later") cars**: a car can be flagged `is_postpaid` (admin-only). A **prepaid** car is settled automatically the moment its session is priced (`is_paid=true`, `amount_paid=total_price`). A **postpaid** car's session ends **unpaid** (`is_paid=false`, `amount_paid=0`) — an accumulating debt — and is settled later when the admin records a payment. Either way the charge still counts toward shift earnings and dashboard revenue at charge time; the debt is tracked separately as a per-car balance.
 6. **Shift financials are computed, not entered** — `total_kwatt`, `total_earned_money_on_shift`, `total_kwatt_used_on_shift`, `total_car_charged` are all derived from the shift's linked charging sessions when the shift is closed. `money_on_momo` and `end_kwatts_in_cashpower` are the two exceptions: both are entered by the staff member at close time (the latter is the actual CashPower meter reading, deliberately not computed, since real usage can drift from the sum of recorded sessions).
 7. **Every charger has a `left` and a `right` port (`Charger.PORTS`), each charges one car independently.** A charger can run up to 2 simultaneous sessions, one per port. Starting a session requires picking a free `port` (`"left"` or `"right"`); starting on an already-occupied port fails with `"Port <left/right> on this charger is already in use."` (also enforced at the DB level via a unique constraint, so it's race-safe). Every place chargers are listed (`GET /api/chargers/`, `GET /api/stations/chargers/`) includes a `ports` array per charger so the UI can show which port is free before the staff picks one.
 
@@ -121,10 +122,12 @@ Full CRUD, but the response shape and what you're allowed to set depends on role
 
 | Method | Path | Role | Notes |
 |---|---|---|---|
-| GET | `` / `<pk>/` | admin or staff | Admin response includes `unique_price`; staff response omits it entirely. |
-| POST | `` | admin or staff | Create a car: `plate_number, owner_name?, phone_number?, optional_info?` (+ `unique_price?` for admin only — the field doesn't exist in the staff request/response schema, so staff can't set or see it even by sending it). |
-| PATCH | `<pk>/` | admin or staff | Same field restriction as create. |
+| GET | `` / `<pk>/` | admin or staff | Admin response includes `unique_price` and `is_postpaid`; staff response omits both entirely. |
+| POST | `` | admin or staff | Create a car: `plate_number, owner_name?, phone_number?, optional_info?` (+ `unique_price?`, `is_postpaid?` for admin only — those fields don't exist in the staff request/response schema, so staff can't set or see them even by sending them). |
+| PATCH | `<pk>/` | admin or staff | Same field restriction as create. Admins flip a car to pay-later by `PATCH`-ing `{ "is_postpaid": true }`. |
 | DELETE | `<pk>/` | **admin only** | Staff gets 403. |
+| POST | `<pk>/pay/` | **admin only** | Record a settlement: `{ amount, note? }`. Applies the amount to the car's oldest unpaid sessions first (FIFO); partial amounts allowed. Rejected if `amount` exceeds the outstanding balance. Returns `{ payment, balance }`. |
+| GET | `<pk>/balance/` | **admin only** | Returns `{ balance: { times_charged, total_charged, total_paid, outstanding, times_paid, is_postpaid }, payments: [...] }`. Works for any car (prepaid cars simply show `outstanding: 0`). |
 
 ### Cars (quick lookup) & Sessions — `/api/sessions/` (staff only, `IsAdminOrStaff` for the car endpoints, `IsStaff` for session endpoints)
 
@@ -136,7 +139,7 @@ Full CRUD, but the response shape and what you're allowed to set depends on role
 | POST | `end/` | staff | `session_id, watt_consumed, ending_car_percentage` (or `session_id, ending_car_percentage, power_outage=true`) | Computes `total_price` (car `unique_price` else station `price_per_watt`) and `duration`. **Power-outage estimate**: when the grid cut mid-charge and the meter can't be read, send `power_outage=true` and omit `watt_consumed` — the kWh used is estimated from the car's past sessions (average kWh per battery %, applied to this session's start→end %) and flagged `is_estimated=true`. If the car has no prior history, the request is rejected and staff must enter `watt_consumed` manually. |
 | GET | `my-sessions/` | staff | — | Staff's own sessions, all stations, newest first. |
 
-`ChargingSession` fields returned: `station, station_name, charger, charger_name, port, staff, shift, car, car_plate, starting_car_percentage, ending_car_percentage, watt_consumed, is_estimated, total_price, duration, started_at, ended_at`. `is_estimated` is `true` when `watt_consumed` was auto-estimated after a power outage rather than metered.
+`ChargingSession` fields returned: `station, station_name, charger, charger_name, port, staff, shift, car, car_plate, starting_car_percentage, ending_car_percentage, watt_consumed, is_estimated, total_price, is_paid, amount_paid, duration, started_at, ended_at`. `is_paid` is `false` for an unsettled postpaid charge. `is_estimated` is `true` when `watt_consumed` was auto-estimated after a power outage rather than metered.
 
 #### Ending a session — normal vs. power-outage
 
@@ -164,9 +167,9 @@ Send `power_outage: true` and **omit** `watt_consumed`; the server estimates it 
 ```
 
 How the estimate is computed (server-side, not the client's job):
-- For each of the car's **past completed real** sessions (`is_estimated=false`, both percentages recorded, end% > start%), a per-percent rate = `watt_consumed / (ending% − starting%)` (kWh per 1% of battery).
-- The rates are **averaged** across all such sessions, then multiplied by this session's `(ending_car_percentage − starting_car_percentage)` and rounded to 2 decimals.
-- Example: a past charge used 50 kWh over 20%→100% → rate 0.625 kWh/%. This outage the car went 20%→50% → `0.625 × 30 = 18.75` kWh. `total_price` then applies pricing rule #5 as usual.
+- Take the car's **most recent completed real** session (`is_estimated=false`, both percentages recorded, end% > start%), ordered by `ended_at` — the last time this car actually charged.
+- Derive its per-percent rate = `watt_consumed / (ending% − starting%)` (kWh per 1% of battery), then multiply by this session's `(ending_car_percentage − starting_car_percentage)` and round to 2 decimals.
+- Example: the car's last charge used 50 kWh over 20%→100% → rate 0.625 kWh/%. This outage the car went 20%→50% → `0.625 × 30 = 18.75` kWh. `total_price` then applies pricing rule #5 as usual.
 
 Integration notes for the frontend:
 - Offer a **"Power went off / couldn't read meter"** toggle on the end-session form. When on, hide/disable the kWh input and send `power_outage: true` without `watt_consumed`; still collect `ending_car_percentage`.
@@ -190,6 +193,9 @@ Two report types, each with a JSON endpoint plus Excel/PDF download twins that a
 | GET | `expenses/` | JSON: station expenses report. **Admin only** (unlike the two reports above). |
 | GET | `expenses/excel/` | Same data as `.xlsx`. |
 | GET | `expenses/pdf/` | Same data as `.pdf`. |
+| GET | `cars/` | JSON: per-car charging & payment summary. **Admin only.** |
+| GET | `cars/excel/` | Same data as `.xlsx`. |
+| GET | `cars/pdf/` | Same data as `.pdf`. |
 
 **Filters (query params, all optional)**:
 - `staff` — admin only; staff requests ignore/can't override this, always scoped to themselves. Invalid (non-integer) values return a 400 with a clear message, not a 500. Not applicable to the expenses report (no staff field).
@@ -203,6 +209,8 @@ Two report types, each with a JSON endpoint plus Excel/PDF download twins that a
 **Shift report row**: `staff_name, station_name, shift_start, start_kwatts_in_cashpower, addition_kwatt_in_cashpower, total_kwatt, total_earned_money_on_shift, total_kwatt_used_on_shift, money_on_momo, end_kwatts_in_cashpower, shift_end, total_car_charged`.
 
 **Expenses report row**: `id, station_name, description, amount_vat_exclusive, input_vat, date`.
+
+**Car summary report row**: `plate_number, owner_name, is_postpaid, times_charged, total_amount, amount_paid, times_paid, outstanding`. One row per car that has priced sessions, ordered by outstanding balance (highest first). Extra filters beyond `station`/`date_from`/`date_to`: `postpaid` (`true` = pay-later cars only, `false` = prepaid only). `date_from`/`date_to` scope both session charges (on `started_at`) and payments (on `paid_at`).
 
 ### Dashboard — `/api/dashboard/` (`IsAdminOrStaff`; staff always scoped to their own sessions/shifts, admin sees everyone)
 
@@ -223,6 +231,7 @@ Aggregated, chart-ready JSON for a stats dashboard — no HTML/rendering, just n
 - **Station**: `name, price_per_watt`.
 - **Charger**: `name, station`. Fixed `left`/`right` ports (`Charger.PORTS`); availability is derived, not stored.
 - **ShiftRecord**: see fields above — one open shift per staff member at a time, station chosen at open-time. `money_on_momo` and `end_kwatts_in_cashpower` are staff-entered at close; everything else derived is computed.
-- **Car**: `plate_number (unique), owner_name, phone_number, unique_price (admin-only), optional_info`.
-- **ChargingSession**: linked to `station, charger, port, staff, shift, car`; `total_price` and `duration` are computed, not sent by the client. DB-level unique constraint prevents two active sessions on the same charger+port.
+- **Car**: `plate_number (unique), owner_name, phone_number, unique_price (admin-only), is_postpaid (admin-only), optional_info`.
+- **CarPayment**: a settlement event on a postpaid car's balance — `car, amount, recorded_by, paid_at, note`. Created only via `POST /api/cars/<pk>/pay/`.
+- **ChargingSession**: linked to `station, charger, port, staff, shift, car`; `total_price`, `duration`, `is_paid`, `amount_paid` are computed/derived, not sent by the client. Prepaid cars settle at charge time; postpaid cars stay `is_paid=false` until an admin records payments (FIFO). DB-level unique constraint prevents two active sessions on the same charger+port.
 - **Expense**: `station, description, amount_vat_exclusive, input_vat`, all entered by an admin; `date` is auto-set on creation and not sent by the client. Admin-only resource.

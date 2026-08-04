@@ -1,10 +1,15 @@
 from rest_framework.viewsets import ModelViewSet
+from rest_framework.decorators import action
 from drf_spectacular.utils import extend_schema, extend_schema_view
 
 from users.permissions import IsAdmin, IsAdminOrStaff
 from users.exceptions import success_response, error_response
 from .models import Car
-from .serializers import CarSerializer, CarRegisterSerializer
+from .serializers import (
+    CarSerializer, CarRegisterSerializer,
+    CarPaymentSerializer, CarPaymentInputSerializer,
+)
+from .services import CarPaymentService
 
 
 @extend_schema_view(
@@ -20,7 +25,7 @@ class CarViewSet(ModelViewSet):
     queryset = Car.objects.all()
 
     def get_permissions(self):
-        if self.action == 'destroy':
+        if self.action in ('destroy', 'pay', 'balance'):
             return [IsAdmin()]
         return [IsAdminOrStaff()]
 
@@ -56,3 +61,47 @@ class CarViewSet(ModelViewSet):
         serializer_class = self.get_serializer_class()
         qs = self.get_queryset()
         return success_response(data=serializer_class(qs, many=True).data)
+
+    @extend_schema(
+        tags=['Cars'],
+        summary='Record a payment against a car (admin only)',
+        description=(
+            'Records money paid by a postpaid car and settles its oldest unpaid '
+            'charging sessions first (FIFO). Partial amounts are allowed; the '
+            'amount may not exceed the outstanding balance.'
+        ),
+        request=CarPaymentInputSerializer,
+        responses={201: CarPaymentSerializer},
+    )
+    @action(detail=True, methods=['post'])
+    def pay(self, request, pk=None):
+        car = self.get_object()
+        serializer = CarPaymentInputSerializer(data=request.data)
+        if not serializer.is_valid():
+            return error_response(errors=serializer.errors)
+        try:
+            payment, balance = CarPaymentService.record_payment(
+                car=car,
+                amount=serializer.validated_data['amount'],
+                recorded_by=request.user,
+                note=serializer.validated_data.get('note', ''),
+            )
+        except ValueError as e:
+            return error_response(message=str(e))
+        return success_response(
+            data={'payment': CarPaymentSerializer(payment).data, 'balance': balance},
+            message="Payment recorded",
+            status_code=201,
+        )
+
+    @extend_schema(
+        tags=['Cars'],
+        summary="Get a car's charging balance and payment history (admin only)",
+        responses={200: CarPaymentSerializer(many=True)},
+    )
+    @action(detail=True, methods=['get'])
+    def balance(self, request, pk=None):
+        car = self.get_object()
+        balance = CarPaymentService.get_balance(car)
+        payments = CarPaymentSerializer(car.payments.all(), many=True).data
+        return success_response(data={'balance': balance, 'payments': payments})

@@ -3,6 +3,7 @@ from .views import (
     SessionReportView, SessionReportExcelView, SessionReportPdfView,
     ShiftReportView, ShiftReportExcelView, ShiftReportPdfView,
     ExpenseReportView, ExpenseReportExcelView, ExpenseReportPdfView,
+    CarSummaryReportView, CarSummaryReportExcelView, CarSummaryReportPdfView,
 )
 
 urlpatterns = [
@@ -17,4 +18,8 @@ urlpatterns = [
     path('expenses/', ExpenseReportView.as_view(), name='report-expenses'),
     path('expenses/excel/', ExpenseReportExcelView.as_view(), name='report-expenses-excel'),
     path('expenses/pdf/', ExpenseReportPdfView.as_view(), name='report-expenses-pdf'),
+
+    path('cars/', CarSummaryReportView.as_view(), name='report-cars'),
+    path('cars/excel/', CarSummaryReportExcelView.as_view(), name='report-cars-excel'),
+    path('cars/pdf/', CarSummaryReportPdfView.as_view(), name='report-cars-pdf'),
 ]

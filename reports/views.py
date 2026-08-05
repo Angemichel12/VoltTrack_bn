@@ -12,9 +12,15 @@ from .columns import (
 from .exporters import build_excel_response, build_pdf_response
 
 
+OWNER_FILTER_PARAM = OpenApiParameter(
+    'owner', str,
+    description='Filter by car owner name (exact). Use /api/cars/owners/?search= to look up owner names.',
+)
+
 COMMON_FILTER_PARAMS = [
     OpenApiParameter('staff', int, description='Admin only — filter by staff id. Staff are always scoped to their own data.'),
     OpenApiParameter('station', int, description='Filter by station id'),
+    OWNER_FILTER_PARAM,
     OpenApiParameter('date_from', str, description='YYYY-MM-DD, inclusive'),
     OpenApiParameter('date_to', str, description='YYYY-MM-DD, inclusive'),
 ]
@@ -32,6 +38,7 @@ EXPENSE_FILTER_PARAMS = [
 
 CAR_SUMMARY_FILTER_PARAMS = [
     OpenApiParameter('station', int, description='Filter by station id'),
+    OWNER_FILTER_PARAM,
     OpenApiParameter('date_from', str, description='YYYY-MM-DD, inclusive (on session start / payment date)'),
     OpenApiParameter('date_to', str, description='YYYY-MM-DD, inclusive'),
     OpenApiParameter('postpaid', bool, description='true = pay-later cars only, false = prepaid only'),

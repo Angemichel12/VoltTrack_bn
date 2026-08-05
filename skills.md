@@ -123,6 +123,7 @@ Full CRUD, but the response shape and what you're allowed to set depends on role
 | Method | Path | Role | Notes |
 |---|---|---|---|
 | GET | `` / `<pk>/` | admin or staff | Admin response includes `unique_price` and `is_postpaid`; staff response omits both entirely. |
+| GET | `owners/?search=...` | admin or staff | **Owner type-ahead** for report filtering. Returns distinct, non-blank owner names matching `search` (case-insensitive substring), each with `car_count`: `[{owner_name, car_count}, ...]`, ordered by name. Omitting `search` lists all owners. Pick a name here, then pass it as the `owner` query param to any report (see Reports). |
 | POST | `` | admin or staff | Create a car: `plate_number, owner_name?, phone_number?, optional_info?` (+ `unique_price?`, `is_postpaid?` for admin only — those fields don't exist in the staff request/response schema, so staff can't set or see them even by sending them). |
 | PATCH | `<pk>/` | admin or staff | Same field restriction as create. Admins flip a car to pay-later by `PATCH`-ing `{ "is_postpaid": true }`. |
 | DELETE | `<pk>/` | **admin only** | Staff gets 403. |
@@ -202,6 +203,7 @@ Two report types, each with a JSON endpoint plus Excel/PDF download twins that a
 - `station` — station id.
 - `charger` — session report only.
 - `shift` — session report only, filter to one shift's sessions.
+- `owner` — car owner name (exact). Look names up via `GET /api/cars/owners/?search=...` (see Cars), then pass the selected name here to show records across **all cars of that owner**. Applies to the **sessions**, **shifts**, and **cars** reports; the **expenses** report ignores it (expenses have no car association). For the shift report a shift matches if it contains at least one session for one of that owner's cars.
 - `date_from` / `date_to` — `YYYY-MM-DD`, inclusive, filtered on `started_at` (sessions) / `shift_start` (shifts) / `date` (expenses).
 
 **Session report row**: `shift_id, staff_name, station_name, charger_name, port, car_plate, starting_car_percentage, ending_car_percentage, watt_consumed, is_estimated, duration, total_price, started_at, ended_at`. `total_price` ("paid") is the same auto-calculated value from the session itself — never entered directly.

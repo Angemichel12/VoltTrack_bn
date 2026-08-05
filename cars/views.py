@@ -1,6 +1,7 @@
 from rest_framework.viewsets import ModelViewSet
 from rest_framework.decorators import action
-from drf_spectacular.utils import extend_schema, extend_schema_view
+from django.db.models import Count
+from drf_spectacular.utils import extend_schema, extend_schema_view, OpenApiParameter, OpenApiTypes
 
 from users.permissions import IsAdmin, IsAdminOrStaff
 from users.exceptions import success_response, error_response
@@ -61,6 +62,31 @@ class CarViewSet(ModelViewSet):
         serializer_class = self.get_serializer_class()
         qs = self.get_queryset()
         return success_response(data=serializer_class(qs, many=True).data)
+
+    @extend_schema(
+        tags=['Cars'],
+        summary='Search car owners (autocomplete)',
+        description=(
+            'Returns distinct car-owner names matching the `search` term (case-insensitive '
+            'substring), each with how many cars that owner has. Intended to power the '
+            '"filter by car owner" search on the reports — pick a name here, then pass it as '
+            'the `owner` query param to any report endpoint.'
+        ),
+        parameters=[OpenApiParameter('search', str, description='Case-insensitive substring of the owner name')],
+        responses={200: OpenApiTypes.OBJECT},
+    )
+    @action(detail=False, methods=['get'])
+    def owners(self, request):
+        search = (request.query_params.get('search') or '').strip()
+        qs = Car.objects.exclude(owner_name='').exclude(owner_name__isnull=True)
+        if search:
+            qs = qs.filter(owner_name__icontains=search)
+        rows = (
+            qs.values('owner_name')
+            .annotate(car_count=Count('id'))
+            .order_by('owner_name')
+        )
+        return success_response(data=list(rows))
 
     @extend_schema(
         tags=['Cars'],

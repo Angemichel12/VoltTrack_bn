@@ -33,6 +33,13 @@ def _parse_bool(params, key):
     return str(value).strip().lower() in ('true', '1', 'yes')
 
 
+def _parse_str(params, key):
+    value = params.get(key)
+    if value in (None, ''):
+        return None
+    return str(value).strip()
+
+
 def filter_sessions(user, params):
     """Charging sessions report queryset. Staff are always scoped to their own sessions."""
     qs = ChargingSession.objects.select_related('station', 'charger', 'staff', 'car', 'shift')
@@ -55,6 +62,10 @@ def filter_sessions(user, params):
     charger_id = _parse_int(params, 'charger')
     if charger_id is not None:
         qs = qs.filter(charger_id=charger_id)
+
+    owner = _parse_str(params, 'owner')
+    if owner is not None:
+        qs = qs.filter(car__owner_name=owner)
 
     date_from = _parse_date(params, 'date_from')
     if date_from is not None:
@@ -81,6 +92,12 @@ def filter_shifts(user, params):
     station_id = _parse_int(params, 'station')
     if station_id is not None:
         qs = qs.filter(station_id=station_id)
+
+    # A shift isn't tied to a car directly; filter to shifts that include at
+    # least one charging session for one of the selected owner's cars.
+    owner = _parse_str(params, 'owner')
+    if owner is not None:
+        qs = qs.filter(sessions__car__owner_name=owner).distinct()
 
     date_from = _parse_date(params, 'date_from')
     if date_from is not None:
@@ -137,6 +154,10 @@ def car_charge_summary(params):
     postpaid = _parse_bool(params, 'postpaid')
     if postpaid is not None:
         sessions = sessions.filter(car__is_postpaid=postpaid)
+
+    owner = _parse_str(params, 'owner')
+    if owner is not None:
+        sessions = sessions.filter(car__owner_name=owner)
 
     rows = (
         sessions
